@@ -1,0 +1,549 @@
+#include "A7139config.h"
+
+//******************************************************************************
+
+struc_main mv;
+const unsigned char ID_Tab[4]={0x01,0x02,0x03,0xa4};
+const unsigned short  A7139Config[]=  
+{
+  0x0823,		//SYSTEM CLOCK register,
+  0x0A21,
+  0xDA05,   // 433MHz
+	0x0000,		//PLL3 register,
+	0x0A20,		//PLL4 register,
+	0x0024,		//PLL5 register,
+	0x0000,		//PLL6 register,
+	0x0011,		//CRYSTAL register,
+	0x0000,		//PAGEA,
+	0x0000,		//PAGEB,
+	0x18D0,		//RX1 register, 	IFBW=50KHz, ETH=1	
+	0x7009,		//RX2 register, 	by preamble
+	0x4400,		//ADC register,	   	
+	0x0800,		//PIN CONTROL register,		Use Strobe CMD
+	0x4845,		//CALIBRATION register,
+	0x20C0		//MODE CONTROL register, 	Use FIFO mode
+};
+
+const unsigned short A7139Config_PageA[]=
+{   
+	0xF606,		//TX1 register, 	Fdev = 18.75kHz
+	0x0000,		//WOR1 register,
+	0xF800,		//WOR2 register,
+	0x1107,		//RFI register, 	Enable Tx Ramp up/down  
+	0x8170,		//PM register,		CST=1
+	0x0201,		//RTH register,
+	0x400F,		//AGC1 register,	
+	0x2AC0,		//AGC2 register, 
+	
+  0x0045,		//GIO register, 	GIO2=WTR, GIO1=FSYNC
+  
+  0xD281,		//CKO register
+	0x0004,		//VCB register,
+  0x0a21,   // 430MHz
+  0x0022,   // 435MHz
+  0x003F,		//FIFO register, 	FEP=63+1=64bytes
+	0x1507,		//CODE register, 	Preamble=4bytes, ID=4bytes
+	0x0000		//WCAL register,
+};
+
+const unsigned short  A7139Config_PageB[]=
+{
+	0x0337,		//TX2 register,
+	0x8200,		//IF1 register, 	Enable Auto-IF, IF=100KHz
+	0x0000,		//IF2 register,
+	0x0000,		//ACK register,
+	0x0000		//ART register,
+};
+
+//------------------------------------------------------------------------------
+// @1MHz
+void delay_1us(unsigned char n)
+{
+  while(n)n--;
+}
+
+//------------------------------------------------------------------------------
+
+// @12MHz
+void delay_100us(unsigned char n)
+{
+  unsigned char i;
+
+  while(n--)
+	{
+    for(i=0; i<20; i++);
+	}
+}
+
+//------------------------------------------------------------------------------
+
+// @12MHz
+void delay_1ms(unsigned char n)
+{
+  unsigned char j;
+
+  while(n--)
+  {
+    for(j=0; j<200; j++);
+  }
+}
+
+//------------------------------------------------------------------------------
+
+// @12MHz
+void delay_10ms(unsigned char n)
+{
+  unsigned char i,j;
+  
+  while(n--)
+  {
+    for(i=0; i<10; i++)
+      for(j=0; j<200; j++);
+  }
+}
+void nop(void){delay_1us(5);}
+
+
+//******************************************************************************
+
+
+void rf433_power_on(void)
+{
+
+}
+void rf433_power_off(void)
+{
+
+}
+
+
+//******************************************************************************
+
+
+void ByteSend(unsigned char src)
+{
+  unsigned char i;
+  
+  for(i=0;i<8;i++)
+  {
+    if(src&0x80) spi_si_set;
+    else         spi_si_clr;
+
+    src<<=1; spi_ck_set;
+    nop();   spi_ck_clr;
+  }
+}
+
+//------------------------------------------------------------------------------
+
+unsigned char ByteRead(void)
+{
+  unsigned char i,tmp;
+  
+  spi_io_input;
+//  Set_spi_si_inpu();
+  for(i=0;i<8;i++)
+  {
+    tmp<<=1;
+    
+    spi_ck_set;
+    
+    if(spi_io_hig) tmp|=0x01;
+    
+    spi_ck_clr;
+  }
+  
+  spi_io_outpu;
+//  Set_spi_si_outpu();
+  return tmp;
+}
+
+//------------------------------------------------------------------------------
+
+void StrobeCMD(unsigned char cmd)
+{
+  spi_cs_clr;
+  
+  ByteSend(cmd);
+  
+  spi_cs_set;
+}
+
+//------------------------------------------------------------------------------
+
+void A7139_WriteReg(unsigned char addre, unsigned short word)
+{
+  spi_cs_clr;
+  
+  addre&=0x0F; addre|=CMD_Reg_W;
+  
+  spi_io_outpu;
+  ByteSend(addre); ByteSend(word>>8); ByteSend(word);
+
+  spi_cs_set;
+}
+
+//------------------------------------------------------------------------------
+
+unsigned short A7139_ReadReg(unsigned char addre)
+{
+  unsigned char i; unsigned short tmp;
+  
+  spi_cs_clr;
+  
+  addre&=0x0F; addre|=CMD_Reg_R;
+	spi_io_outpu;
+  ByteSend(addre);
+  
+  spi_io_input; 
+  for(i=0;i<16;i++)
+  {
+    tmp<<=1; spi_ck_set;
+    
+    if(spi_io_hig) tmp|=0x01;
+    
+    spi_ck_clr;
+  }
+  
+  spi_cs_set;
+  
+  spi_io_outpu;
+  return tmp;
+}
+
+//------------------------------------------------------------------------------
+
+void A7139_WritePageA(unsigned char addre, unsigned short word)
+{
+  unsigned short tmp;
+
+  tmp = addre;
+  tmp = ((tmp << 12) | A7139Config[CRYSTAL_REG]);
+  A7139_WriteReg(CRYSTAL_REG, tmp);
+  A7139_WriteReg(PAGEA_REG, word);
+}
+
+//------------------------------------------------------------------------------
+
+unsigned short A7139_ReadPageA(unsigned char addre)
+{
+  unsigned short tmp;
+
+  tmp = addre;
+  tmp = ((tmp << 12) | A7139Config[CRYSTAL_REG]);
+  A7139_WriteReg(CRYSTAL_REG, tmp);
+
+  return A7139_ReadReg(PAGEA_REG);
+}
+
+//------------------------------------------------------------------------------
+
+void A7139_WritePageB(unsigned char addre, unsigned short word)
+{
+  unsigned short tmp;
+
+  tmp = addre;
+  tmp = ((tmp << 7) | A7139Config[CRYSTAL_REG]);
+  A7139_WriteReg(CRYSTAL_REG, tmp);
+  A7139_WriteReg(PAGEB_REG, word);
+}
+
+//------------------------------------------------------------------------------
+
+unsigned short A7139_ReadPageB(unsigned char addre)
+{
+  unsigned short tmp;
+  
+  tmp = addre;
+  tmp = ((tmp << 7) | A7139Config[CRYSTAL_REG]);
+  A7139_WriteReg(CRYSTAL_REG, tmp);
+  
+  return A7139_ReadReg(PAGEB_REG);
+}
+
+//------------------------------------------------------------------------------
+
+unsigned char A7139_Config(void)
+{
+  unsigned char  i;
+  unsigned short tmp;
+
+  for(i=0; i<8; i++)A7139_WriteReg(i,A7139Config[i]);
+  for(i=10;i<16;i++)A7139_WriteReg(i,A7139Config[i]);
+  for(i=0; i<16;i++)A7139_WritePageA(i,A7139Config_PageA[i]);
+  for(i=0; i<5; i++)A7139_WritePageB(i,A7139Config_PageB[i]);
+  
+  //for check
+  
+  tmp = A7139_ReadReg(SYSTEMCLOCK_REG);
+  if(tmp != A7139Config[SYSTEMCLOCK_REG]) return 1;
+  
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+
+unsigned char A7139_WriteID(void)
+{
+  unsigned char i, d1, d2, d3, d4;
+  
+  spi_cs_clr;
+  ByteSend(CMD_ID_W);
+  for(i=0; i<4; i++)
+    ByteSend(ID_Tab[i]);
+  spi_cs_set;
+  
+  delay_100us(2);
+  
+  spi_cs_clr;
+  ByteSend(CMD_ID_R);
+  d1=ByteRead(); d2=ByteRead(); d3=ByteRead(); d4=ByteRead();
+  spi_cs_set;
+  if( (d1!=ID_Tab[0]) || (d2!=ID_Tab[1]) || (d3!=ID_Tab[2]) || (d4!=ID_Tab[3]) )
+    return 1;
+  
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+
+unsigned char A7139_Cal(void)
+{
+  unsigned short tmp;
+  unsigned char  fbcf,vccf,vbcf;
+  
+  // IF calibration procedure @STB state
+  // IF Filter & VCO Current Calibration
+  A7139_WriteReg(MODE_REG,A7139Config[MODE_REG]|0x0802); 
+  do{
+    tmp = A7139_ReadReg(MODE_REG);
+  }while(tmp & 0x0802);
+
+  tmp = A7139_ReadReg(CALIBRATION_REG);
+  fbcf = (tmp>>4) & 0x01;
+  if(fbcf) { return 1; }
+  
+  // for check(VCO Current)
+  tmp = A7139_ReadPageA(VCB_PAGEA);
+  vccf = (tmp>>4) & 0x01;
+  if(vccf) { return 1; }
+  
+  // RSSI Calibration procedure @STB state
+  A7139_WriteReg(ADC_REG,0x4C00);                         // set ADC average=64
+  A7139_WriteReg(MODE_REG,A7139Config[MODE_REG]|0x1000);  // RSSI Calibration
+  do{
+    tmp = A7139_ReadReg(MODE_REG);
+  }while(tmp & 0x1000);
+  A7139_WriteReg(ADC_REG, A7139Config[ADC_REG]);
+  
+  // VCO calibration procedure @STB state
+  A7139_WriteReg(PLL1_REG,A7139Config[PLL1_REG]);
+  A7139_WriteReg(PLL2_REG,A7139Config[PLL2_REG]);
+  A7139_WriteReg(MODE_REG,A7139Config[MODE_REG]|0x0004);  //VCO Band Calibration
+  do{
+    tmp = A7139_ReadReg(MODE_REG);
+  }while(tmp & 0x0004);
+  
+  // for check(VCO Band)
+  tmp = A7139_ReadReg(CALIBRATION_REG);
+  vbcf = (tmp >>8) & 0x01;
+  if(vbcf) { return 1; }
+  
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+void A7139_WriteFIFO(unsigned char* buf, unsigned char num)
+{
+  unsigned char i;
+  
+  StrobeCMD(CMD_TFR);
+  
+  spi_cs_clr;
+  
+  ByteSend(CMD_FIFO_W);
+  
+  for(i=0;i<num;i++) ByteSend(*(buf+i));
+  
+  spi_cs_set;
+}
+//------------------------------------------------------------------------------
+
+void A7139_ReadFIFO(unsigned char* buf, unsigned char num)
+{
+  unsigned char i;
+
+  StrobeCMD(CMD_RFR);
+  
+  spi_cs_clr;
+  
+  ByteSend(CMD_FIFO_R);
+  for(i=0;i<num;i++)*(buf+i)=ByteRead();
+  
+  spi_cs_set;
+}
+
+//------------------------------------------------------------------------------
+
+void rf433_deep_sleep_entry(void)
+{
+  StrobeCMD(CMD_RF_RST);        //RF reset
+  A7139_WriteReg(PIN_REG,A7139Config[PIN_REG]|0x0800);             //SCMDS=1
+  A7139_WritePageA(PM_PAGEA, A7139Config_PageA[PM_PAGEA]|0x0010);  //QDS=1
+  StrobeCMD(CMD_SLEEP);         //entry sleep mode
+  delay_100us(6);               //delay 600us for VDD_A shutdown, C load=0.1uF
+  StrobeCMD(CMD_DEEP_SLEEP);    //entry deep sleep mode
+  delay_100us(2);               //delay 200us for VDD_D shutdown, C load=0.1uF
+}
+
+//------------------------------------------------------------------------------
+
+void rf433_deep_sleep_wake_up(void)
+{
+  StrobeCMD(CMD_STBY);  // wake up
+  delay_1ms(2);         // delay 2ms for VDD_D stabilized
+  //rf433_init();
+}
+
+
+//******************************************************************************
+
+
+unsigned char rf433_init(void)
+{
+  spi_io_outpu;
+//  Set_spi_si_outpu();
+  StrobeCMD(CMD_RF_RST);
+  delay_1ms(10);
+  
+  if(A7139_Config()) return 1;
+  
+  delay_1ms(1);  // delay 800us for crystal stabilized
+  
+  if(A7139_WriteID()) return 2;
+  
+  if(A7139_Cal()) return 3;
+  
+  A7139_WritePageB(TX2_PAGEB,0x0301); // 0301==5.5db  0303==12.4db 0307==18db
+  A7139_WritePageA(PM_PAGEA,A7139Config_PageA[PM_PAGEA]|0x1000);  // STS=1
+  
+  StrobeCMD(CMD_STBY);
+  StrobeCMD(CMD_RX);//	
+//  StrobeCMD(CMD_IDLE);
+//	StrobeCMD(CMD_TX);//
+  return 0;
+}
+
+//------------------------------------------------------------------------------
+
+// A7139没有发送校验和的 一帧发送的时间 (4+4+64)*8/10k
+// 设为64个字节而实际写入FIFO少于64，发收都还能成功，与CC1101很不同
+// *(buf+0)为发送个数    发送后置接收并回0
+
+unsigned char rf433_send(unsigned char* buf)
+{
+  if(!wait_tr) return 1;
+  
+  StrobeCMD(CMD_STBY);
+  
+   A7139_WriteFIFO(buf,*(buf+0));
+  StrobeCMD(CMD_TX);
+  
+  nop();nop();nop();
+  
+  while(wait_tr);
+  
+  StrobeCMD(CMD_RX);
+  
+  return 0;
+}
+
+unsigned char rf433_read(unsigned char* buf)
+{
+   A7139_ReadFIFO(buf,64);
+  return 0;
+}
+//------------------------------------------------------------------------------
+
+unsigned char rf433_rece(unsigned char* buf)
+{
+  unsigned short tmp;
+  
+  if(wait_tr) return 0;
+  
+  StrobeCMD(CMD_STBY);
+  
+  tmp=A7139_ReadReg(MODE_REG);
+  A7139_ReadFIFO(buf,64);
+  
+  StrobeCMD(CMD_RX);
+  
+  return *(buf+0);
+}
+
+
+unsigned char rf433_send_ack(unsigned char* buf, unsigned char s_num)
+{
+  unsigned char j,bf[32];
+  
+  if(s_num>64) return 2;
+  
+  for(j=0;j<5;j++)
+  {
+    StrobeCMD(CMD_STBY);
+    
+    A7139_WriteFIFO(buf,s_num);
+    StrobeCMD(CMD_TX);
+    nop();nop();nop();
+    while(wait_tr);
+    
+    StrobeCMD(CMD_STBY);
+    StrobeCMD(CMD_RX);
+    mv.count=11;
+    while((wait_tr)&&(mv.count));
+    
+    if(mv.count)
+    {
+      A7139_ReadFIFO(bf,22);
+      if( (*(buf+15)==bf[15]) && (*(buf+20)==bf[20]) )
+      return 0;
+    }
+  }
+  
+  return 1;
+}
+
+unsigned char rf433_rece_ack(unsigned char *buf, unsigned char r_num)
+{
+  static unsigned char stati=0;
+  
+  if(stati)
+  {
+    if(wait_tr) return 0;
+    else goto rf433_rece_s2;
+  }
+  
+  StrobeCMD(CMD_STBY); nop();
+  StrobeCMD(CMD_RX);
+  
+  mv.count=300;
+  if(r_num&0x80)while((wait_tr)){stati=1;return 0;}
+  else          while((wait_tr)&&(mv.count)){stati=1;return 0;}
+  
+  rf433_rece_s2:
+  
+  if(mv.count)
+  {
+    A7139_ReadFIFO(buf,32);
+    
+    r_num&=0x7f;
+    
+    A7139_WriteFIFO(buf,32);
+    delay_1ms(2);
+    StrobeCMD(CMD_TX);nop();nop();nop();
+    while(wait_tr);
+    
+    stati=0; return 1;
+  }
+  else{stati=0; return 0;}
+}
