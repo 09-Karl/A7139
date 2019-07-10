@@ -1,0 +1,69 @@
+int main(void)
+{
+	unsigned char readtimes=0;					 
+  HAL_Init();
+  SystemClock_Config();
+  MX_GPIO_Init();
+  MX_RTC_Init();
+  MX_ADC_Init();
+  MX_LPUART1_UART_Init();
+/*******************************初始化模块***********************************/
+	LED2_Open();
+	LED1_Open();
+
+/* 初始化433模块*/
+	do
+	{
+			readtimes+=1;
+			if(0==rf433_init())
+			{			
+				mcu_thread.Enable.A7139_init_success=1;			/* A7139初始化成功*/
+				break;
+			}
+			else if(1==rf433_init())
+			{
+				mcu_thread.Enable.A7139_init_success=0;			/* A7139初始化失败*/
+			}				
+	}while((readtimes<2)&&(readtimes>0));
+	StrobeCMD(CMD_STBY);
+	delay_1us(30);
+	StrobeCMD(CMD_RX);
+	printf("start\r\n");
+	Rx_mode = 1;
+
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {	
+			if((mcu_thread.Enable.allow_A7139_receive==1)
+				&&(read_intts==0))/*接收功能生效*/		
+			{
+					Rx_mode = 0;
+					A7139_ReadFIFO(receive.buffer,64);
+					printf("rf433 recevie-");
+					for(i = 0; i < 64; i++)
+						printf("%02x ",receive.buffer[i]);
+					printf("\r\n");
+				
+					if(read_intts==0)
+					{
+						printf("电平足\r\n");
+						error_count = 0;
+					}
+					else
+					{
+						printf("电平不足\r\n");
+						error_count++;
+					}
+					
+					StrobeCMD(CMD_STBY);
+					HAL_Delay(20);
+					StrobeCMD(CMD_RFR);	
+					HAL_Delay(20);
+					StrobeCMD(CMD_RX);
+					HAL_Delay(20);										
+					Rx_mode = 1;
+					mcu_thread.Enable.allow_A7139_receive = 0;					
+			}
+
+	}
+}
